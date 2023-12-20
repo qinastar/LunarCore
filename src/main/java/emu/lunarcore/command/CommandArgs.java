@@ -26,9 +26,8 @@ public class CommandArgs {
     private int rank = -1;
     private int promotion = -1;
     private int stage = -1;
-    private Int2IntMap map;
     
-    private static String EMPTY_STRING = "";
+    private Int2IntMap map;
 
     public CommandArgs(Player sender, List<String> args) {
         this.sender = sender;
@@ -102,7 +101,7 @@ public class CommandArgs {
     
     public String get(int index) {
         if (index < 0 || index >= list.size()) {
-            return EMPTY_STRING;
+            return "";
         }
         return this.list.get(index);
     }
@@ -198,7 +197,10 @@ public class CommandArgs {
         } else if (item.getExcel().isRelic()) {
             // Sub stats
             if (this.getMap() != null) {
+                // Reset substats first
                 item.resetSubAffixes();
+                
+                int maxCount = (int) Math.floor(LunarCore.getConfig().getServerOptions().maxCustomRelicLevel / 3) + 1;
                 hasChanged = true;
                 
                 for (var entry : this.getMap().int2IntEntrySet()) {
@@ -207,7 +209,9 @@ public class CommandArgs {
                     var subAffix = GameData.getRelicSubAffixExcel(item.getExcel().getRelicExcel().getSubAffixGroup(), entry.getIntKey());
                     if (subAffix == null) continue;
                     
-                    item.getSubAffixes().add(new GameItemSubAffix(subAffix, entry.getIntValue()));
+                    // Set count
+                    int count = Math.min(entry.getIntValue(), maxCount);
+                    item.getSubAffixes().add(new GameItemSubAffix(subAffix, count));
                 }
             }
             
@@ -223,7 +227,7 @@ public class CommandArgs {
             // Try to set level
             if (this.getLevel() > 0) {
                 // Set relic level
-                item.setLevel(Math.min(this.getLevel(), 999));
+                item.setLevel(Math.min(this.getLevel(), LunarCore.getConfig().getServerOptions().maxCustomRelicLevel));
                 
                 // Apply sub stat upgrades to the relic
                 int upgrades = item.getMaxNormalSubAffixCount() - item.getCurrentSubAffixCount();

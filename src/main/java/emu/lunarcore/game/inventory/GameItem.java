@@ -135,8 +135,13 @@ public class GameItem {
         return !this.isLocked() && !this.isEquipped();
     }
 
-    public void setCount(int count) {
-        this.count = count;
+    public boolean setCount(int count) {
+        if (this.count != count) {
+            this.count = count;
+            return true;
+        }
+        
+        return false;
     }
 
     public boolean setEquipAvatar(int newEquipAvatar) {
@@ -242,7 +247,6 @@ public class GameItem {
         } else if (this.getId() != null) {
             LunarCore.getGameDatabase().delete(this);
         }
-
     }
 
     // Proto

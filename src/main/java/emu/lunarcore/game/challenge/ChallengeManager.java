@@ -1,18 +1,21 @@
 package emu.lunarcore.game.challenge;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
 
 import emu.lunarcore.GameConstants;
 import emu.lunarcore.LunarCore;
 import emu.lunarcore.data.GameData;
+import emu.lunarcore.data.GameDepot;
+import emu.lunarcore.data.common.ItemParam;
 import emu.lunarcore.data.excel.ChallengeExcel;
-import emu.lunarcore.game.inventory.GameItem;
 import emu.lunarcore.game.player.BasePlayerManager;
 import emu.lunarcore.game.player.Player;
 import emu.lunarcore.game.player.lineup.PlayerLineup;
 import emu.lunarcore.proto.ExtraLineupTypeOuterClass.ExtraLineupType;
 import emu.lunarcore.proto.StartChallengeStoryBuffInfoOuterClass.StartChallengeStoryBuffInfo;
+import emu.lunarcore.proto.TakenChallengeRewardInfoOuterClass.TakenChallengeRewardInfo;
 import emu.lunarcore.server.packet.Retcode;
 import emu.lunarcore.server.packet.send.PacketStartChallengeScRsp;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
@@ -106,7 +109,7 @@ public class ChallengeManager extends BasePlayerManager {
         getPlayer().sendPacket(new PacketStartChallengeScRsp(getPlayer(), challengeId));
     }
     
-    public synchronized void addHistory(int challengeId, int stars) {
+    public synchronized void addHistory(int challengeId, int stars, int score) {
         // Dont write challenge history if the player didnt get any stars
         if (stars <= 0) return;
         
@@ -115,21 +118,19 @@ public class ChallengeManager extends BasePlayerManager {
 
         // Set
         info.setStars(stars);
+        info.setScore(score);
         info.save();
     }
     
-    public synchronized List<GameItem> takeRewards(int groupId, int starCount) {
+    public synchronized List<TakenChallengeRewardInfo> takeRewards(int groupId) {
         // Get excels
         var challengeGroup = GameData.getChallengeGroupExcelMap().get(groupId);
         if (challengeGroup == null) return null;
         
-        var challengeReward = GameData.getChallengeRewardExcel(challengeGroup.getRewardLineGroupID(), starCount);
-        if (challengeReward == null) return null;
+        var challengeRewardLine = GameDepot.getChallengeRewardLines().get(challengeGroup.getRewardLineGroupID());
+        if (challengeRewardLine == null) return null;
         
-        var rewardExcel = GameData.getRewardExcelMap().get(challengeReward.getRewardID());
-        if (rewardExcel == null) return null;
-        
-        // Validate
+        // Get total stars
         int totalStars = 0;
         for (ChallengeHistory ch : this.getHistory().values()) {
             // Legacy compatibility
@@ -147,22 +148,47 @@ public class ChallengeManager extends BasePlayerManager {
             }
         }
         
-        // Check if the player has enough stars
-        if (totalStars < starCount) {
-            return null;
+        // Rewards
+        List<TakenChallengeRewardInfo> rewardInfos = new ArrayList<>();
+        List<ItemParam> rewardItems = new ArrayList<>();
+        
+        // Get challenge rewards
+        for (var challengeReward : challengeRewardLine) {
+            // Check if we have enough stars to take this reward
+            if (totalStars < challengeReward.getStarCount()) {
+                continue;
+            }
+            
+            // Get reward info
+            var reward = this.getTakenRewards().computeIfAbsent(groupId, id -> new ChallengeGroupReward(getPlayer(), groupId));
+            
+            // Check if reward has been taken
+            if (reward.hasTakenReward(challengeReward.getStarCount())) {
+                continue;
+            }
+            
+            // Set reward as taken
+            reward.setTakenReward(challengeReward.getStarCount());
+            
+            // Get reward excel
+            var rewardExcel = GameData.getRewardExcelMap().get(challengeReward.getRewardID());
+            if (rewardExcel == null) continue;
+            
+            // Add rewards
+            var proto = TakenChallengeRewardInfo.newInstance()
+                    .setStarCount(challengeReward.getStarCount());
+            
+            for (ItemParam itemParam : rewardExcel.getRewards()) {
+                proto.getMutableReward().addItemList(itemParam.toProto());
+                rewardItems.add(itemParam);
+            }
+            
+            rewardInfos.add(proto);
         }
-        
-        // Get reward info
-        var reward = this.getTakenRewards().computeIfAbsent(groupId, id -> new ChallengeGroupReward(getPlayer(), groupId));
-        
-        if (reward.hasTakenReward(starCount)) {
-            return null;
-        }
-        
-        reward.setTakenReward(starCount);
         
         // Add items to inventory
-        return getPlayer().getInventory().addItemParams(rewardExcel.getRewards());
+        getPlayer().getInventory().addItemParams(rewardItems);
+        return rewardInfos;
     }
     
     public void loadFromDatabase() {
